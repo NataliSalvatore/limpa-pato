@@ -24,8 +24,41 @@ function removeSpecks(image, strength, cleanPaper = false) {
       }
     }
   }
+  smoothPaint(result,width,height,strength);
   if (cleanPaper) whitenPaper(result,width,height);
   return result;
+}
+
+// Smooth within a painted region. Strong color changes and alpha edges stop
+// the recursive filter, including during the reverse pass.
+function smoothPaint(data,width,height,strength) {
+  const count=width*height;
+  const horizontal=new Uint8Array(count), vertical=new Uint8Array(count);
+  function difference(p,q){
+    if(data[p+3]!==data[q+3])return 255;
+    return Math.max(Math.abs(data[p]-data[q]),Math.abs(data[p+1]-data[q+1]),Math.abs(data[p+2]-data[q+2]));
+  }
+  for(let y=0;y<height;y++)for(let x=0;x<width;x++){
+    const i=y*width+x,p=i*4;
+    if(x)horizontal[i]=difference(p,p-4);
+    if(y)vertical[i]=difference(p,p-width*4);
+  }
+  const field=new Float32Array(count);
+  const radius=[6,20,42][strength], contrast=[4,8,12][strength];
+  for(let channel=0;channel<3;channel++){
+    for(let i=0;i<count;i++)field[i]=data[4*i+channel];
+    for(const factor of [1,0.5,0.25]){
+      const weight=Float32Array.from({length:256},(_,d)=>d>=40?0:Math.exp(-1/(radius*factor)-d*d/(contrast*contrast*factor)));
+      for(let y=0;y<height;y++){
+        const start=y*width,end=start+width;
+        for(let i=start+1;i<end;i++)field[i]+=weight[horizontal[i]]*(field[i-1]-field[i]);
+        for(let i=end-2;i>=start;i--)field[i]+=weight[horizontal[i+1]]*(field[i+1]-field[i]);
+      }
+      for(let i=width;i<count;i++)field[i]+=weight[vertical[i]]*(field[i-width]-field[i]);
+      for(let i=count-width-1;i>=0;i--)field[i]+=weight[vertical[i+width]]*(field[i+width]-field[i]);
+    }
+    for(let i=0;i<count;i++)if(data[4*i+3])data[4*i+channel]=field[i];
+  }
 }
 
 // Only the nearly white, neutral paper reachable from the outer edge is eligible.

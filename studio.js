@@ -59,12 +59,18 @@ async function trace(){
       const putResult=async bytes=>{
         if(id!==generation)return;
         ctx.putImageData(new ImageData(bytes,c.width,c.height),0,0);
-        const blob=await new Promise(resolve=>c.toBlob(resolve,'image/png'));
+        const factor=Math.min(Number(el('scale').value),Math.sqrt(16000000/(c.width*c.height)),8192/Math.max(c.width,c.height));
+        let output=c;
+        if(factor>1){
+          output=canvas(Math.round(c.width*factor),Math.round(c.height*factor));
+          const scaled=output.getContext('2d');scaled.imageSmoothingQuality='high';scaled.drawImage(c,0,0,output.width,output.height);
+        }
+        const blob=await new Promise(resolve=>output.toBlob(resolve,'image/png'));
         if(id!==generation)return;
         if(!blob)throw Error('PNG');
         if(svgURL)URL.revokeObjectURL(svgURL);
         svgURL=URL.createObjectURL(blob);el('vector').src=svgURL;
-        el('status').textContent='Pronto para baixar';el('save').disabled=false;
+        el('status').textContent='PNG pronto · '+output.width+' × '+output.height;el('save').disabled=false;
       };
       const fail=()=>{if(id===generation)el('status').textContent='Falha ao limpar a imagem.';};
       if(location.protocol!=='file:'){
@@ -105,13 +111,14 @@ el('save').onclick=async()=>{
 };
 function setMode(){
   const retouch=el('mode').value==='retouch';
+  el('scaleLabel').style.display=retouch?'flex':'none';el('scale').hidden=!retouch;
   el('paperLabel').style.display=retouch?'block':'none';
   el('paletteLabel').style.display=retouch?'none':'';
   el('colors').hidden=retouch;el('format').disabled=retouch;
   el('format').value=retouch?'png':'svg';el('format').onchange();
   document.querySelector('.after').textContent=retouch?'Limpo':'Vetor';
 }
-el('paper').onchange=trace;
+el('scale').onchange=trace;el('paper').onchange=trace;
 el('mode').onchange=()=>{setMode();trace();};
 setMode();
 const demo=flowerPoster();install(demo,'Flor de papel',demo.width,demo.height,null);
