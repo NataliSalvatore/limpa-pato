@@ -37,7 +37,7 @@ async function loadFile(file){
   if(file.size>20*1024*1024||!/^image\/(png|jpeg|webp|gif|bmp|x-ms-bmp)$/i.test(file.type)){el('status').textContent='Escolha uma imagem compatível de até 20 MB.';return;}
   const id=++upload,url=URL.createObjectURL(file),image=new Image();
   try{image.src=url;await image.decode();if(id!==upload){URL.revokeObjectURL(url);return;}
-    const w=image.naturalWidth,h=image.naturalHeight,k=Math.min(1,1000/Math.max(w,h));
+    const w=image.naturalWidth,h=image.naturalHeight,k=Math.min(1,2560/Math.max(w,h),Math.sqrt(2000000/(w*h)));
     const c=canvas(Math.max(1,Math.round(w*k)),Math.max(1,Math.round(h*k)));c.getContext('2d').drawImage(image,0,0,c.width,c.height);
     install(c,file.name,w,h,url);
   }catch{URL.revokeObjectURL(url);if(id===upload)el('status').textContent='Não foi possível abrir essa imagem.';}
@@ -82,15 +82,17 @@ async function trace(){
     return;
   }
   el('status').textContent='Vetorizando…';
-  const options={numberofcolors:Number(el('colors').value),colorsampling:2,colorquantcycles:3,pathomit:[1,6,16][value],ltres:[.4,1,1.6][value],qtres:[.4,1,1.6][value],blurradius:[0,2,4][value],blurdelta:[0,28,45][value],roundcoords:2,viewbox:true};
+  const options={numberofcolors:Number(el('colors').value),colorsampling:2,colorquantcycles:3,pathomit:[1,6,16][value],ltres:[.4,1,1.6][value],qtres:[.4,1,1.6][value],paintStrength:value,blurradius:0,blurdelta:[0,28,45][value],roundcoords:2,viewbox:true};
   function finish(result){
     if(id!==generation)return;worker?.terminate();worker=null;
     if(!result.svg){el('status').textContent='Falha na conversão. Tente reduzir as cores.';return;}
-    const svg=result.svg.replace('<svg ','<svg width="'+dimensions.w+'" height="'+dimensions.h+'" ');
+    const factor=el('vectorSize').value==='8k'?7680/Math.max(dimensions.w,dimensions.h):1;
+    const w=Math.max(1,Math.round(dimensions.w*factor)),h=Math.max(1,Math.round(dimensions.h*factor));
+    const svg=result.svg.replace('<svg ','<svg width="'+w+'" height="'+h+'" ');
     if(svgURL)URL.revokeObjectURL(svgURL);svgURL=URL.createObjectURL(new Blob([svg],{type:'image/svg+xml'}));
-    el('vector').src=svgURL;el('status').textContent='Pronto para baixar';el('save').disabled=false;
+    el('vector').src=svgURL;el('status').textContent='Vetor pronto · '+w+' × '+h;el('save').disabled=false;
   }
-  async function local(){await new Promise(r=>setTimeout(r,30));if(id!==generation)return;try{finish({svg:ImageTracer.imagedataToSVG(pixels,options)});}catch{finish({error:true});}}
+  async function local(){await new Promise(r=>setTimeout(r,30));if(id!==generation)return;try{finish({svg:traceArtwork(pixels,options)});}catch{finish({error:true});}}
   if(location.protocol==='file:'){await local();return;}
   try{worker=new Worker('trace.js');worker.onmessage=e=>finish(e.data);worker.onerror=()=>{if(id===generation){worker?.terminate();worker=null;local();}};worker.postMessage({pixels,options});}catch{await local();}
 }
@@ -105,12 +107,13 @@ el('format').onchange=()=>el('save').textContent='↓  Baixar '+el('format').val
 el('save').onclick=async()=>{
   const format=el('format').value, name=sourceName.replace(/\.[^.]+$/,'')+'-limpo.'+format;let url=svgURL;
   const rasterize=format==='png' && el('mode').value==='vector';
-  try{if(rasterize){const image=new Image();image.src=url;await image.decode();const k=Math.min(1,4096/Math.max(image.naturalWidth,image.naturalHeight));const c=canvas(Math.max(1,Math.round(image.naturalWidth*k)),Math.max(1,Math.round(image.naturalHeight*k)));c.getContext('2d').drawImage(image,0,0,c.width,c.height);const blob=await new Promise(r=>c.toBlob(r,'image/png'));url=URL.createObjectURL(blob);}
+  try{if(rasterize){const image=new Image();image.src=url;await image.decode();const k=el('vectorSize').value==='8k'?1:Math.min(1,4096/Math.max(image.naturalWidth,image.naturalHeight));const c=canvas(Math.max(1,Math.round(image.naturalWidth*k)),Math.max(1,Math.round(image.naturalHeight*k)));c.getContext('2d').drawImage(image,0,0,c.width,c.height);const blob=await new Promise(r=>c.toBlob(r,'image/png'));url=URL.createObjectURL(blob);}
     const link=document.createElement('a');link.href=url;link.download=name;document.body.append(link);link.click();link.remove();if(rasterize)setTimeout(()=>URL.revokeObjectURL(url),60000);
   }catch{el('status').textContent='Falha ao exportar. Tente novamente.';}
 };
 function setMode(){
   const retouch=el('mode').value==='retouch';
+  el('vectorSizeLabel').style.display=retouch?'none':'flex';el('vectorSize').hidden=retouch;
   el('scaleLabel').style.display=retouch?'flex':'none';el('scale').hidden=!retouch;
   el('paperLabel').style.display=retouch?'block':'none';
   el('paletteLabel').style.display=retouch?'none':'';
@@ -118,7 +121,7 @@ function setMode(){
   el('format').value=retouch?'png':'svg';el('format').onchange();
   document.querySelector('.after').textContent=retouch?'Limpo':'Vetor';
 }
-el('scale').onchange=trace;el('paper').onchange=trace;
+el('vectorSize').onchange=trace;el('scale').onchange=trace;el('paper').onchange=trace;
 el('mode').onchange=()=>{setMode();trace();};
 setMode();
 const demo=flowerPoster();install(demo,'Flor de papel',demo.width,demo.height,null);
